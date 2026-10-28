@@ -93,3 +93,21 @@ Checked against the project acceptance criteria after the reproducibility run.
 5. **Met.** In `outputs/16_decile_lift_table.csv` the test default rate rises from decile 1 to decile 10: 0%, 0.3%, 1.7%, 2.6%, 2.8%, 6.8%, 11.9%, 16.7%, 75.9%, 100%.
 6. **Met for scoring, not verified in the browser.** The app’s scoring function, loading `models/loan_default_model.joblib`, scored one applicant and a 12-row CSV. A file that also contained `loan_status` was accepted and that column was ignored. The Streamlit page was not opened, so the on-screen form and upload control were not clicked.
 7. **Not met.** This item asks that every number in the course report match a saved file or the console. The report has not been written, so that check cannot be done. The figures in this README are taken from `outputs/final_metrics.json` and `outputs/16_decile_lift_table.csv`.
+
+## Robustness check
+
+`src/ablation.py` drops the lender-set columns and refits the same Stage 5 XGBoost pipeline (`n_estimators=400`, `max_depth=5`, `learning_rate=0.1`, `scale_pos_weight` = 20,257 / 5,670). SMOTE is not in that pipeline. The train/test indices match `outputs/16_test_risk_scores.csv`. Each new threshold is the training out-of-fold value that maximises F2 on the 0.05–0.95 grid. The test set is scored once per variant. The full-model row is copied from `outputs/final_metrics.json` and the top decile of `outputs/16_decile_lift_table.csv`. The saved model, the 0.35 threshold, and the score cutoffs are unchanged.
+
+Test F2 is 0.8232 for the full model, 0.8057 without `loan_grade` (change −0.0175, threshold 0.34), 0.8181 without `loan_int_rate` (change −0.0051, threshold 0.33), and 0.7570 with both removed (change −0.0661, threshold 0.34). The top-decile default rate stays 1.0000 (649 of 649) when either column is removed alone. With both removed it is 0.9969 (647 of 649), a change of −0.0031.
+
+`src/fair_comparison.py` scores all seven models with library-default hyperparameters and SMOTE inside each training fold. It does not replace file 08. In `outputs/21_fair_model_comparison.csv`, XGBoost has the highest mean F2, 0.7707.
+
+Both scripts use seed 42 from `CONFIG["random_state"]` in `src/train.py`. `src/ablation.py` passes it to the stratified split, the 10-fold splitter, and XGBoost. `src/fair_comparison.py` passes it to the 10-fold splitter, SMOTE, and every estimator that accepts `random_state`. KNN and Gaussian Naive Bayes have no seed argument. The ablation run took 112 seconds. The fair comparison took 113 seconds.
+
+Rows added after the output index above:
+
+| # | File | What it is |
+| --- | --- | --- |
+| 19 | `outputs/19_ablation_results.csv` | Ablation metrics for the full model, no grade, no interest rate, and neither |
+| 20 | `outputs/20_ablation_decile_table.csv` | Decile table for the variant with both lender-set columns removed. Decile 10 is highest risk |
+| 21 | `outputs/21_fair_model_comparison.csv` | Seven models, each with SMOTE inside the cross-validation folds |
