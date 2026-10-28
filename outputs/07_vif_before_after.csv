@@ -1,0 +1,8 @@
+feature,vif_before,vif_after,decision,drop_step,reason
+person_age,4.4000,4.4000,kept,,VIF is at or below 5 after iterative removal.
+cb_person_cred_hist_length,4.3586,4.3586,kept,,VIF is at or below 5 after iterative removal.
+loan_amnt,2.4726,2.4726,kept,,VIF is at or below 5 after iterative removal.
+loan_percent_income,2.4054,2.4054,kept,,VIF is at or below 5 after iterative removal.
+person_income,1.7968,1.7968,kept,,VIF is at or below 5 after iterative removal.
+person_emp_length,1.0666,1.0666,kept,,VIF is at or below 5 after iterative removal.
+loan_int_rate,1.0269,1.0269,kept,,VIF is at or below 5 after iterative removal.
