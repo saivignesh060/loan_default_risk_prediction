@@ -1048,11 +1048,10 @@ def plot_pr_curve(y_true: pd.Series, probabilities: np.ndarray, pr_auc: float) -
     save_figure(fig, CONFIG["figure_14"])
 
 
-def assign_band(score: float, p50: float, p80: float) -> str:
-    if score >= p80:
+def assign_band(score: float, threshold: float) -> str:
+    """High if score is at or above the operating threshold (probability x 100)."""
+    if score >= float(threshold) * 100:
         return "High"
-    if score >= p50:
-        return "Medium"
     return "Low"
 
 
@@ -1147,7 +1146,11 @@ def run_final_evaluation(
     )
     print(f"50th percentile cutoff: {score_cutoffs['p50']:.4f}")
     print(f"80th percentile cutoff: {score_cutoffs['p80']:.4f}")
-    print("High: score >= 80th. Medium: 50th <= score < 80th. Low: score < 50th.")
+    print(
+        "Bands are binary at the operating threshold: "
+        f"High if score >= {chosen * 100:.2f}, else Low. "
+        "Percentile cutoffs are kept in the artifact for compatibility."
+    )
 
     print("\nTest evaluation, run once with the tuned model and chosen threshold.")
     test_probabilities = fitted.predict_proba(X_test)[:, 1]
@@ -1199,7 +1202,7 @@ def run_final_evaluation(
             "risk_score": np.round(test_scores, 2),
             "decile": deciles.to_numpy(),
             "band": [
-                assign_band(float(score), score_cutoffs["p50"], score_cutoffs["p80"])
+                assign_band(float(score), chosen)
                 for score in test_scores
             ],
         }

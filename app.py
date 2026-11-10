@@ -41,7 +41,7 @@ CATEGORICAL_VALUES = {
     "loan_grade": ["A", "B", "C", "D", "E", "F", "G"],
     "cb_person_default_on_file": ["N", "Y"],
 }
-BAND_COLORS = {"Low": "#2e7d32", "Medium": "#ef6c00", "High": "#c62828"}
+BAND_COLORS = {"Low": "#2e7d32", "High": "#c62828"}
 REVIEW_MESSAGE = "Likely default: flag for review"
 
 
@@ -57,12 +57,10 @@ def load_artifact(path: Path | None = None) -> dict:
     return artifact
 
 
-def risk_band(score: float, cutoffs: dict) -> str:
-    """High is at or above the 80th percentile. Low is below the 50th."""
-    if score >= float(cutoffs["p80"]):
+def risk_band(score: float, threshold: float) -> str:
+    """High if the score is at or above the review threshold (probability x 100)."""
+    if score >= float(threshold) * 100:
         return "High"
-    if score >= float(cutoffs["p50"]):
-        return "Medium"
     return "Low"
 
 
@@ -165,28 +163,33 @@ def score_applicants(frame: pd.DataFrame, artifact: dict | None = None) -> pd.Da
     flagged = probabilities >= threshold
     scored = features.copy()
     scored["risk_score"] = scores
-    scored["band"] = [risk_band(float(score), artifact["score_cutoffs"]) for score in scores]
+    scored["band"] = [risk_band(float(score), threshold) for score in scores]
     scored["decile"] = assign_deciles(probabilities)
     scored["review_flag"] = np.where(flagged, REVIEW_MESSAGE, "")
     return scored.sort_values(["risk_score", "decile"], ascending=[False, False]).reset_index(drop=True)
 
 
-def test_band_default_rates() -> dict[str, float]:
-    """Observed test-set default rate by band, read from the saved risk table."""
+def test_band_default_rates(threshold: float) -> dict[str, float]:
+    """Observed test-set default rate by High/Low at the review threshold.
+
+    Recomputes bands from risk_score so the rates stay correct even when the
+    saved CSV still stores the older three-way labels.
+    """
     table = pd.read_csv(ROOT / "outputs" / "16_test_risk_scores.csv")
-    rates = {}
-    for band in ("Low", "Medium", "High"):
-        part = table.loc[table["band"] == band, "actual"]
-        rates[band] = float(part.mean()) if len(part) else float("nan")
+    high = table["risk_score"] >= float(threshold) * 100
+    rates = {
+        "High": float(table.loc[high, "actual"].mean()) if high.any() else float("nan"),
+        "Low": float(table.loc[~high, "actual"].mean()) if (~high).any() else float("nan"),
+    }
     return rates
 
 
-def ranking_caption() -> str:
-    rates = test_band_default_rates()
+def ranking_caption(threshold: float) -> str:
+    rates = test_band_default_rates(threshold)
     return (
         "The score is a ranking, not a probability of default. "
         "On the held-out test set the observed default rate was "
-        f"Low {rates['Low']:.1%}, Medium {rates['Medium']:.1%}, High {rates['High']:.1%}."
+        f"Low {rates['Low']:.1%}, High {rates['High']:.1%}."
     )
 
 
@@ -206,9 +209,10 @@ def driver_note() -> str:
     return "Top global risk drivers from the test-set check: " + ", ".join(names) + "."
 
 
-def _show_score(row: pd.Series, cutoffs: dict) -> None:
+def _show_score(row: pd.Series, threshold: float) -> None:
     band = str(row["band"])
     color = BAND_COLORS[band]
+    cutoff = float(threshold) * 100
     st.metric("Risk score", f"{float(row['risk_score']):.2f}")
     st.markdown(
         f"<p style='font-size:1.6rem;margin-top:0'>Band: "
@@ -216,18 +220,12 @@ def _show_score(row: pd.Series, cutoffs: dict) -> None:
         unsafe_allow_html=True,
     )
     st.caption(
-        f"Low is below {float(cutoffs['p50']):.2f}. "
-        f"Medium is from {float(cutoffs['p50']):.2f} up to {float(cutoffs['p80']):.2f}. "
-        f"High is {float(cutoffs['p80']):.2f} or higher."
+        f"High means the score is at or above the review threshold ({cutoff:.2f}). "
+        f"Low means it is below that threshold."
     )
     if row["review_flag"]:
         st.error(REVIEW_MESSAGE)
-    st.caption(ranking_caption())
-    st.caption(
-        "Band comes from the applicant's rank (Low = bottom 50%, Medium = next 30%, "
-        "High = top 20% of scores). The review flag uses a separate threshold optimised "
-        "for catching defaulters, so some Medium-band applicants are also flagged."
-    )
+    st.caption(ranking_caption(threshold))
     st.info(driver_note())
 
 
@@ -295,14 +293,14 @@ def _single_applicant_tab(artifact: dict) -> None:
     except ValueError as exc:
         st.error(str(exc))
         return
-    _show_score(scored.iloc[0], artifact["score_cutoffs"])
+    _show_score(scored.iloc[0], float(artifact["threshold"]))
 
 
 def _batch_tab(artifact: dict) -> None:
     st.write("Upload a CSV with the applicant columns.")
     st.caption("Extra columns, such as loan_status, are ignored.")
     st.caption("Decile 10 is the highest risk in the uploaded file.")
-    st.caption(ranking_caption())
+    st.caption(ranking_caption(float(artifact["threshold"])))
     upload = st.file_uploader("Applicant CSV", type=["csv"])
     if upload is None:
         return
